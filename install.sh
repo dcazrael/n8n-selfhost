@@ -24,29 +24,85 @@ need_apt() {
   fi
 }
 
-install_packages() {
-  $SUDO apt-get update -y
-  $SUDO apt-get install -y ca-certificates curl openssl micro git docker.io docker-compose-plugin
+load_os_release() {
+  # shellcheck disable=SC1091
+  source /etc/os-release
+  OS_ID="${ID:-}"
+  OS_CODENAME="${VERSION_CODENAME:-}"
+  UBUNTU_CODENAME_FALLBACK="${UBUNTU_CODENAME:-}"
 }
 
-enable_docker() {
+apt_update_upgrade() {
+  $SUDO apt-get update -y
+  $SUDO apt-get upgrade -y
+}
+
+install_prereqs() {
+  # Keep this list small and boring; add only what we actually need.
+  # git is required for bootstrap clone. openssl for secret generation.
+  $SUDO apt-get install -y ca-certificates curl git openssl micro
+}
+
+remove_conflicting_docker_pkgs() {
+  # Per Docker docs: remove unofficial packages that can conflict. :contentReference[oaicite:1]{index=1}
+  # Don't fail if some packages aren't installed.
+  $SUDO apt-get remove -y \
+    docker.io docker-compose docker-doc podman-docker containerd runc 2>/dev/null || true
+}
+
+setup_docker_apt_repo() {
+  $SUDO install -m 0755 -d /etc/apt/keyrings
+
+  local repo_base=""
+  local codename=""
+
+  if [[ "$OS_ID" == "debian" ]]; then
+    repo_base="https://download.docker.com/linux/debian"
+    codename="$OS_CODENAME"
+  elif [[ "$OS_ID" == "ubuntu" ]]; then
+    repo_base="https://download.docker.com/linux/ubuntu"
+    codename="${UBUNTU_CODENAME_FALLBACK:-$OS_CODENAME}"
+  else
+    echo "ERROR: Unsupported OS ID: $OS_ID (expected debian or ubuntu)." >&2
+    exit 1
+  fi
+
+  $SUDO curl -fsSL "$repo_base/gpg" -o /etc/apt/keyrings/docker.asc
+  $SUDO chmod a+r /etc/apt/keyrings/docker.asc
+
+  echo \
+"deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] $repo_base $codename stable" \
+    | $SUDO tee /etc/apt/sources.list.d/docker.list > /dev/null
+}
+
+install_docker_engine() {
+  apt_update_upgrade
+  $SUDO apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
   $SUDO systemctl enable --now docker
 }
 
-# If we are running from a non-repo context (curl|bash), clone first.
+# If we are running via curl|bash, clone first and rerun locally.
 bootstrap_clone_if_needed() {
   if [[ "${N8N_SELFHOST_LOCAL:-}" == "1" ]]; then
     return 0
   fi
 
-  # Detect whether we are already in the repo by presence of deploy/docker-compose.yml
   if [[ -f "./deploy/docker-compose.yml" && -f "./configure.sh" ]]; then
     export N8N_SELFHOST_LOCAL=1
     return 0
   fi
 
   need_apt
-  install_packages
+  load_os_release
+
+  echo "==> Updating base system & installing prerequisites..."
+  apt_update_upgrade
+  install_prereqs
+
+  echo "==> Installing Docker from official Docker apt repository..."
+  remove_conflicting_docker_pkgs
+  setup_docker_apt_repo
+  install_docker_engine
 
   local repo_url="${REPO_URL:-$REPO_URL_DEFAULT}"
   local ref="${REF:-$REF_DEFAULT}"
@@ -75,11 +131,20 @@ bootstrap_clone_if_needed() {
 
 main_install() {
   need_apt
-  install_packages
-  enable_docker
+  load_os_release
+
+  echo "==> Updating base system & installing prerequisites..."
+  apt_update_upgrade
+  install_prereqs
+
+  echo "==> Installing Docker from official Docker apt repository..."
+  remove_conflicting_docker_pkgs
+  setup_docker_apt_repo
+  install_docker_engine
 
   # Run configurator if .env is missing
   if [[ ! -f "./deploy/.env" ]]; then
+    echo "==> No deploy/.env found. Running configurator..."
     chmod +x ./configure.sh
     ./configure.sh
   fi
@@ -99,7 +164,7 @@ main_install() {
   (cd deploy && $SUDO docker compose --env-file .env up -d)
 
   echo
-  echo "Done"
+  echo "✅ Done"
   echo "n8n URL: https://$SUBDOMAIN.$DOMAIN_NAME"
   echo "Logs:    cd deploy && ./logs.sh"
 }

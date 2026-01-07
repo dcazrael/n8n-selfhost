@@ -5,21 +5,24 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEPLOY_DIR="$ROOT_DIR/deploy"
 ENV_FILE="$DEPLOY_DIR/.env"
 
-# Colors
+# --- Colors (disable by setting NO_COLOR=1) ---
 if [[ "${NO_COLOR:-}" == "1" ]] || [[ ! -t 1 ]]; then
-  C_RESET=""; C_BLUE=""; C_GREEN=""; C_YELLOW=""; C_RED=""
+  C_RESET=""; C_BLUE=""; C_GREEN=""; C_YELLOW=""; C_RED=""; C_DIM=""
 else
   C_RESET="\033[0m"
   C_BLUE="\033[34m"
   C_GREEN="\033[32m"
   C_YELLOW="\033[33m"
   C_RED="\033[31m"
+  C_DIM="\033[2m"
 fi
 
-log_step() { echo -e "${C_BLUE}⤇${C_RESET} $*"; }
-log_ok()   { echo -e "${C_GREEN}✔${C_RESET} $*"; }
-log_warn() { echo -e "${C_YELLOW}⚠${C_RESET} $*"; }
-log_err()  { echo -e "${C_RED}ERROR:${C_RESET} $*" >&2; }
+# Whole-line colored logs, always to STDERR (so command substitution stays clean)
+log_step() { echo -e "${C_BLUE}==> $*${C_RESET}" >&2; }
+log_ok()   { echo -e "${C_GREEN}OK: $*${C_RESET}" >&2; }
+log_warn() { echo -e "${C_YELLOW}WARN: $*${C_RESET}" >&2; }
+log_err()  { echo -e "${C_RED}ERROR: $*${C_RESET}" >&2; }
+log_dim()  { echo -e "${C_DIM}$*${C_RESET}" >&2; }
 
 SUDO=""
 if [[ "$(id -u)" -ne 0 ]]; then

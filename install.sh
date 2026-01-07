@@ -17,10 +17,12 @@ else
   C_DIM="\033[2m"
 fi
 
-log_step() { echo -e "${C_BLUE}⤇${C_RESET} $*"; }
-log_ok()   { echo -e "${C_GREEN}✔${C_RESET} $*"; }
-log_warn() { echo -e "${C_YELLOW}⚠${C_RESET} $*"; }
-log_err()  { echo -e "${C_RED}ERROR:${C_RESET} $*" >&2; }
+# Whole-line colored logs, always to STDERR (so command substitution stays clean)
+log_step() { echo -e "${C_BLUE}==> $*${C_RESET}" >&2; }
+log_ok()   { echo -e "${C_GREEN}OK: $*${C_RESET}" >&2; }
+log_warn() { echo -e "${C_YELLOW}WARN: $*${C_RESET}" >&2; }
+log_err()  { echo -e "${C_RED}ERROR: $*${C_RESET}" >&2; }
+log_dim()  { echo -e "${C_DIM}$*${C_RESET}" >&2; }
 
 is_root() { [[ "$(id -u)" -eq 0 ]]; }
 
@@ -99,15 +101,14 @@ clone_repo() {
   local install_dir="${INSTALL_DIR:-$INSTALL_DIR_DEFAULT}"
 
   log_step "Cloning repo"
-  echo -e "${C_DIM}Repo:${C_RESET} $repo_url"
-  echo -e "${C_DIM}Ref:${C_RESET}  $ref"
-  echo -e "${C_DIM}Dir:${C_RESET}  $install_dir"
+  log_dim  "Repo: $repo_url"
+  log_dim  "Ref:  $ref"
+  log_dim  "Dir:  $install_dir"
 
-  $SUDO mkdir -p "$install_dir"
+  $SUDO mkdir -p "$install_dir" >/dev/null
   $SUDO chown -R "$(id -u):$(id -g)" "$install_dir" >/dev/null 2>&1 || true
 
   if [[ -d "$install_dir/.git" ]]; then
-    # Keep output readable (no huge git spam), send details to stderr if needed
     git -C "$install_dir" fetch --all --prune --quiet
     git -C "$install_dir" checkout "$ref" --quiet
     git -C "$install_dir" pull --ff-only --quiet || true
@@ -115,9 +116,11 @@ clone_repo() {
     git clone --depth 1 --branch "$ref" "$repo_url" "$install_dir" --quiet
   fi
 
-  # CRITICAL: only print the path on stdout
+  # ONLY the path on stdout
   printf '%s\n' "$install_dir"
 }
+
+
 
 run_repo_entrypoint() {
   local install_dir="$1"

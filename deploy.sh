@@ -29,7 +29,8 @@ chmod +x "$SCRIPT_DIR/configure.sh" "$DEPLOY_DIR/"*.sh 2>/dev/null || true
 
 if [[ ! -f "$ENV_FILE" ]]; then
   log_step "No deploy/.env found. Running configurator"
-  "$SCRIPT_DIR/configure.sh"
+  "$SCRIPT_DIR/configure.sh" </dev/tty
+
 fi
 
 set -a

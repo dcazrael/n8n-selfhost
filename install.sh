@@ -19,7 +19,7 @@ fi
 
 need_apt() {
   if ! command -v apt-get >/dev/null 2>&1; then
-    echo "ERROR: This installer currently supports Debian/Ubuntu (apt-get)." >&2
+    echo "ERROR: This installer supports Debian/Ubuntu (apt-get) only." >&2
     exit 1
   fi
 }
@@ -38,14 +38,10 @@ apt_update_upgrade() {
 }
 
 install_prereqs() {
-  # Keep this list small and boring; add only what we actually need.
-  # git is required for bootstrap clone. openssl for secret generation.
   $SUDO apt-get install -y ca-certificates curl git openssl micro
 }
 
 remove_conflicting_docker_pkgs() {
-  # Per Docker docs: remove unofficial packages that can conflict. :contentReference[oaicite:1]{index=1}
-  # Don't fail if some packages aren't installed.
   $SUDO apt-get remove -y \
     docker.io docker-compose docker-doc podman-docker containerd runc 2>/dev/null || true
 }
@@ -63,7 +59,7 @@ setup_docker_apt_repo() {
     repo_base="https://download.docker.com/linux/ubuntu"
     codename="${UBUNTU_CODENAME_FALLBACK:-$OS_CODENAME}"
   else
-    echo "ERROR: Unsupported OS ID: $OS_ID (expected debian or ubuntu)." >&2
+    echo "ERROR: Unsupported OS: $OS_ID (expected debian or ubuntu)." >&2
     exit 1
   fi
 
@@ -76,34 +72,12 @@ setup_docker_apt_repo() {
 }
 
 install_docker_engine() {
-  apt_update_upgrade
+  $SUDO apt-get update -y
   $SUDO apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
   $SUDO systemctl enable --now docker
 }
 
-# If we are running via curl|bash, clone first and rerun locally.
-bootstrap_clone_if_needed() {
-  if [[ "${N8N_SELFHOST_LOCAL:-}" == "1" ]]; then
-    return 0
-  fi
-
-  if [[ -f "./deploy/docker-compose.yml" && -f "./configure.sh" ]]; then
-    export N8N_SELFHOST_LOCAL=1
-    return 0
-  fi
-
-  need_apt
-  load_os_release
-
-  echo "==> Updating base system & installing prerequisites..."
-  apt_update_upgrade
-  install_prereqs
-
-  echo "==> Installing Docker from official Docker apt repository..."
-  remove_conflicting_docker_pkgs
-  setup_docker_apt_repo
-  install_docker_engine
-
+clone_repo() {
   local repo_url="${REPO_URL:-$REPO_URL_DEFAULT}"
   local ref="${REF:-$REF_DEFAULT}"
   local install_dir="${INSTALL_DIR:-$INSTALL_DIR_DEFAULT}"
@@ -124,50 +98,26 @@ bootstrap_clone_if_needed() {
     git clone --depth 1 --branch "$ref" "$repo_url" "$install_dir"
   fi
 
-  echo "==> Re-running installer from cloned repo..."
-  export N8N_SELFHOST_LOCAL=1
-  exec bash "$install_dir/install.sh"
+  echo "$install_dir"
 }
 
-main_install() {
-  need_apt
-  load_os_release
-
-  echo "==> Updating base system & installing prerequisites..."
-  apt_update_upgrade
-  install_prereqs
-
-  echo "==> Installing Docker from official Docker apt repository..."
-  remove_conflicting_docker_pkgs
-  setup_docker_apt_repo
-  install_docker_engine
-
-  # Run configurator if .env is missing
-  if [[ ! -f "./deploy/.env" ]]; then
-    echo "==> No deploy/.env found. Running configurator..."
-    chmod +x ./configure.sh
-    ./configure.sh
-  fi
-
-  # Load env
-  set -a
-  # shellcheck disable=SC1091
-  source "./deploy/.env"
-  set +a
-
-  echo "==> Creating docker volumes..."
-  $SUDO docker volume create "$TRAEFIK_VOLUME" >/dev/null
-  $SUDO docker volume create "$N8N_VOLUME" >/dev/null
-  $SUDO docker volume create "$REDIS_VOLUME" >/dev/null
-
-  echo "==> Starting stack..."
-  (cd deploy && $SUDO docker compose --env-file .env up -d)
-
-  echo
-  echo "✅ Done"
-  echo "n8n URL: https://$SUBDOMAIN.$DOMAIN_NAME"
-  echo "Logs:    cd deploy && ./logs.sh"
+run_repo_entrypoint() {
+  local install_dir="$1"
+  echo "==> Running repo installer..."
+  exec bash -lc "cd '$install_dir' && chmod +x ./repo-install.sh ./configure.sh ./deploy/*.sh && ./repo-install.sh"
 }
 
-bootstrap_clone_if_needed
-main_install
+need_apt
+load_os_release
+
+echo "==> Updating base system & installing prerequisites..."
+apt_update_upgrade
+install_prereqs
+
+echo "==> Installing Docker from official Docker apt repository..."
+remove_conflicting_docker_pkgs
+setup_docker_apt_repo
+install_docker_engine
+
+INSTALL_DIR="$(clone_repo)"
+run_repo_entrypoint "$INSTALL_DIR"

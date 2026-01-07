@@ -125,8 +125,9 @@ clone_repo() {
 run_repo_entrypoint() {
   local install_dir="$1"
   log_step "Running repo installer"
-  exec bash -lc "cd '$install_dir' && chmod +x ./repo-install.sh ./configure.sh ./deploy/*.sh && ./repo-install.sh"
+  exec bash -lc "cd '$install_dir' && chmod +x ./repo-install.sh ./configure.sh && ./repo-install.sh"
 }
+
 
 need_apt
 load_os_release

@@ -5,6 +5,23 @@ REPO_URL_DEFAULT="https://github.com/dcazrael/n8n-selfhost.git"
 REF_DEFAULT="main"
 INSTALL_DIR_DEFAULT="/opt/n8n-selfhost"
 
+# --- Colors (disable by setting NO_COLOR=1) ---
+if [[ "${NO_COLOR:-}" == "1" ]] || [[ ! -t 1 ]]; then
+  C_RESET=""; C_BLUE=""; C_GREEN=""; C_YELLOW=""; C_RED=""; C_DIM=""
+else
+  C_RESET="\033[0m"
+  C_BLUE="\033[34m"
+  C_GREEN="\033[32m"
+  C_YELLOW="\033[33m"
+  C_RED="\033[31m"
+  C_DIM="\033[2m"
+fi
+
+log_step() { echo -e "${C_BLUE}⤇${C_RESET} $*"; }
+log_ok()   { echo -e "${C_GREEN}✔${C_RESET} $*"; }
+log_warn() { echo -e "${C_YELLOW}⚠${C_RESET} $*"; }
+log_err()  { echo -e "${C_RED}ERROR:${C_RESET} $*" >&2; }
+
 is_root() { [[ "$(id -u)" -eq 0 ]]; }
 
 SUDO=""
@@ -12,14 +29,14 @@ if ! is_root; then
   if command -v sudo >/dev/null 2>&1; then
     SUDO="sudo"
   else
-    echo "ERROR: sudo is required when not running as root." >&2
+    log_err "sudo is required when not running as root."
     exit 1
   fi
 fi
 
 need_apt() {
   if ! command -v apt-get >/dev/null 2>&1; then
-    echo "ERROR: This installer supports Debian/Ubuntu (apt-get) only." >&2
+    log_err "This installer supports Debian/Ubuntu (apt-get) only."
     exit 1
   fi
 }
@@ -42,8 +59,8 @@ install_prereqs() {
 }
 
 remove_conflicting_docker_pkgs() {
-  $SUDO apt-get remove -y \
-    docker.io docker-compose docker-doc podman-docker containerd runc 2>/dev/null || true
+  # Ignore errors if packages do not exist
+  $SUDO apt-get remove -y docker.io docker-compose docker-doc podman-docker containerd runc >/dev/null 2>&1 || true
 }
 
 setup_docker_apt_repo() {
@@ -59,22 +76,21 @@ setup_docker_apt_repo() {
     repo_base="https://download.docker.com/linux/ubuntu"
     codename="${UBUNTU_CODENAME_FALLBACK:-$OS_CODENAME}"
   else
-    echo "ERROR: Unsupported OS: $OS_ID (expected debian or ubuntu)." >&2
+    log_err "Unsupported OS: $OS_ID (expected debian or ubuntu)."
     exit 1
   fi
 
   $SUDO curl -fsSL "$repo_base/gpg" -o /etc/apt/keyrings/docker.asc
   $SUDO chmod a+r /etc/apt/keyrings/docker.asc
 
-  echo \
-"deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] $repo_base $codename stable" \
+  echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] $repo_base $codename stable" \
     | $SUDO tee /etc/apt/sources.list.d/docker.list > /dev/null
 }
 
 install_docker_engine() {
   $SUDO apt-get update -y
   $SUDO apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-  $SUDO systemctl enable --now docker
+  $SUDO systemctl enable --now docker >/dev/null 2>&1 || true
 }
 
 clone_repo() {
@@ -82,39 +98,41 @@ clone_repo() {
   local ref="${REF:-$REF_DEFAULT}"
   local install_dir="${INSTALL_DIR:-$INSTALL_DIR_DEFAULT}"
 
-  echo "==> Cloning repo"
-  echo "    Repo: $repo_url"
-  echo "    Ref:  $ref"
-  echo "    Dir:  $install_dir"
+  log_step "Cloning repo"
+  echo -e "${C_DIM}Repo:${C_RESET} $repo_url"
+  echo -e "${C_DIM}Ref:${C_RESET}  $ref"
+  echo -e "${C_DIM}Dir:${C_RESET}  $install_dir"
 
   $SUDO mkdir -p "$install_dir"
-  $SUDO chown -R "$(id -u):$(id -g)" "$install_dir" || true
+  $SUDO chown -R "$(id -u):$(id -g)" "$install_dir" >/dev/null 2>&1 || true
 
   if [[ -d "$install_dir/.git" ]]; then
-    git -C "$install_dir" fetch --all --prune
-    git -C "$install_dir" checkout "$ref"
-    git -C "$install_dir" pull --ff-only || true
+    # Keep output readable (no huge git spam), send details to stderr if needed
+    git -C "$install_dir" fetch --all --prune --quiet
+    git -C "$install_dir" checkout "$ref" --quiet
+    git -C "$install_dir" pull --ff-only --quiet || true
   else
-    git clone --depth 1 --branch "$ref" "$repo_url" "$install_dir"
+    git clone --depth 1 --branch "$ref" "$repo_url" "$install_dir" --quiet
   fi
 
-  echo "$install_dir"
+  # CRITICAL: only print the path on stdout
+  printf '%s\n' "$install_dir"
 }
 
 run_repo_entrypoint() {
   local install_dir="$1"
-  echo "==> Running repo installer..."
+  log_step "Running repo installer"
   exec bash -lc "cd '$install_dir' && chmod +x ./repo-install.sh ./configure.sh ./deploy/*.sh && ./repo-install.sh"
 }
 
 need_apt
 load_os_release
 
-echo "==> Updating base system & installing prerequisites..."
+log_step "Updating base system & installing prerequisites"
 apt_update_upgrade
 install_prereqs
 
-echo "==> Installing Docker from official Docker apt repository..."
+log_step "Installing Docker from official Docker apt repository"
 remove_conflicting_docker_pkgs
 setup_docker_apt_repo
 install_docker_engine

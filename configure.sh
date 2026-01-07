@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Use /dev/tty for interactive prompts (works even when running via curl|bash)
+PROMPT_FD=0
+if [[ -r /dev/tty ]]; then
+  exec 3</dev/tty
+  PROMPT_FD=3
+fi
+
+
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEPLOY_DIR="$ROOT_DIR/deploy"
 ENV_FILE="$DEPLOY_DIR/.env"

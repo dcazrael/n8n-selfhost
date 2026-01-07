@@ -1,3 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
-sudo docker compose --env-file .env down
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
+SUDO=""
+if [[ "$(id -u)" -ne 0 ]]; then
+  SUDO="sudo"
+fi
+
+$SUDO docker compose --env-file .env down
